@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://YOURDOMAIN/sitemap.xml
+Sitemap: https://ese-digitals-platform.legaldept-nrc.workers.dev/sitemap.xml
