@@ -14,22 +14,6 @@ function Assert-True([bool]$Condition, [string]$Message) {
   }
 }
 
-function Read-ErrorResponse([object]$Response) {
-  $body = ''
-  if ($null -ne $Response) {
-    try {
-      $stream = $Response.GetResponseStream()
-      if ($null -ne $stream) {
-        $reader = New-Object System.IO.StreamReader($stream)
-        try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
-      }
-    } catch {
-      $body = ''
-    }
-  }
-  return $body
-}
-
 function Get-Checked([string]$Url) {
   try {
     $response = Invoke-WebRequest -Uri $Url -Method Get -UseBasicParsing -MaximumRedirection 5
@@ -46,7 +30,13 @@ function Get-Checked([string]$Url) {
     if ($null -ne $response) {
       try { $status = [int]$response.StatusCode } catch {}
       try { $headers = $response.Headers } catch {}
-      $content = Read-ErrorResponse $response
+      try {
+        $stream = $response.GetResponseStream()
+        if ($null -ne $stream) {
+          $reader = New-Object System.IO.StreamReader($stream)
+          try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        }
+      } catch {}
     }
     return [pscustomobject]@{
       StatusCode = $status
@@ -58,43 +48,52 @@ function Get-Checked([string]$Url) {
 
 function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
   $json = if ($null -ne $Body) { $Body | ConvertTo-Json -Depth 8 -Compress } else { $null }
-  $request = @{
-    Uri = $Api
-    Method = $Method
-    Headers = $Headers
-    UseBasicParsing = $true
-  }
-
-  if ($null -ne $RawBody) {
-    $request.ContentType = $ContentType
-    $request.Body = $RawBody
-  } elseif (($Method -ne 'GET') -and ($null -ne $json)) {
-    $request.ContentType = 'application/json'
-    $request.Body = $json
-  }
-
+  $headerFile = [System.IO.Path]::GetTempFileName()
+  $bodyFile = [System.IO.Path]::GetTempFileName()
   try {
-    $response = Invoke-WebRequest @request
-    return [pscustomobject]@{
-      StatusCode = [int]$response.StatusCode
-      Content = [string]$response.Content
-      Headers = $response.Headers
+    $curlArgs = @('-sS', '-D', $headerFile, '-o', $bodyFile, '-w', '%{http_code}', '-X', $Method, $Api)
+
+    if ($Method -ne 'GET') {
+      $curlArgs += @('-H', "Content-Type: $ContentType")
     }
-  } catch {
-    $response = $_.Exception.Response
+
+    foreach ($key in $Headers.Keys) {
+      $curlArgs += @('-H', "$key`: $($Headers[$key])")
+    }
+
+    if ($null -ne $RawBody) {
+      $curlArgs += @('--data-raw', $RawBody)
+    } elseif (($Method -ne 'GET') -and ($null -ne $json)) {
+      $curlArgs += @('--data-raw', $json)
+    }
+
+    $statusText = & curl.exe @curlArgs
+    $curlExit = $LASTEXITCODE
     $status = 0
-    $headers = @{}
-    $content = ''
-    if ($null -ne $response) {
-      try { $status = [int]$response.StatusCode } catch {}
-      try { $headers = $response.Headers } catch {}
-      $content = Read-ErrorResponse $response
+    try { $status = [int](($statusText | Select-Object -Last 1).Trim()) } catch {}
+
+    $responseHeaders = @{}
+    if (Test-Path $headerFile) {
+      foreach ($line in Get-Content -LiteralPath $headerFile) {
+        if ($line -match '^([^:]+):\s*(.*)$') {
+          $responseHeaders[$matches[1]] = $matches[2]
+        }
+      }
     }
+
+    $content = if (Test-Path $bodyFile) { [string](Get-Content -LiteralPath $bodyFile -Raw) } else { '' }
+    if ($curlExit -ne 0 -and $status -eq 0) {
+      Write-Host "INFO  curl exit code $curlExit"
+    }
+
     return [pscustomobject]@{
       StatusCode = $status
       Content = $content
-      Headers = $headers
+      Headers = $responseHeaders
     }
+  } finally {
+    Remove-Item -LiteralPath $headerFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
   }
 }
 
