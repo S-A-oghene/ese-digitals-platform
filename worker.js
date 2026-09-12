@@ -28,28 +28,39 @@ function json(body, status = 200, extraHeaders = {}) {
 
 function originAllowed(request, env) {
   const origin = request.headers.get('Origin') || '';
+
+  // Non-browser clients such as curl do not send Origin. The request has already
+  // reached this exact Worker URL, so absence of Origin is not a cross-origin claim.
+  if (!origin) return true;
+
+  const requestOrigin = new URL(request.url).origin;
+  if (origin === requestOrigin) return true;
+
   const configured = String(env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((v) => v.trim())
     .filter(Boolean);
-  return configured.length > 0 && configured.includes(origin);
+  return configured.includes(origin);
 }
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
-  return {
-    'Access-Control-Allow-Origin': origin,
+  const headers = {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Vary': 'Origin',
   };
+
+  // Only emit Access-Control-Allow-Origin when a browser supplied an Origin.
+  if (origin) headers['Access-Control-Allow-Origin'] = origin;
+  return headers;
 }
 
 async function handleOpportunity(request, env) {
   const cors = corsHeaders(request);
 
   if (!originAllowed(request, env)) {
-    return json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
+    return json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403, cors);
   }
 
   if (request.method === 'OPTIONS') {
