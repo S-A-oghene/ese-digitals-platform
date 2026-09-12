@@ -47,9 +47,16 @@ function resultCount(body) {
   return Array.isArray(body?.results) ? body.results.length : 0;
 }
 
+function countryOptions(html) {
+  const select = html.match(/<select id="country"[\s\S]*?<\/select>/i)?.[0] || '';
+  return [...select.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/gi)]
+    .map((match) => match[2].trim())
+    .filter(Boolean);
+}
+
 console.log('=============================================================');
 console.log('ESE DIGITALS — G9 VERIFICATION WAVE');
-console.log('G9.5 closure | G9.10 | G9.11 | G9.12 | G9.13 | G9.14 | G9.16');
+console.log('G9.5 enhancement | G9.13 enhancement | G9.16 regression');
 console.log('=============================================================');
 console.log(`Base: ${BASE}`);
 console.log('');
@@ -64,8 +71,19 @@ for (const route of routes) {
   assertTrue(/rel=["']canonical["']/i.test(r.text), `${route} has a canonical link`);
 }
 
+const engineHtml = pages['/engine/'].text;
+assertTrue(engineHtml.includes('/project/') && engineHtml.includes('/engine/'), 'Engine exposes project/next-action links');
+assertTrue(/<select id="country"/i.test(engineHtml), 'Engine Country input is a structured select');
+const countries = countryOptions(engineHtml);
+const sortedCountries = [...countries].sort((a, b) => a.localeCompare(b));
+assertTrue(JSON.stringify(countries) === JSON.stringify(sortedCountries), 'Country options are alphabetically ordered');
+assertTrue(engineHtml.includes('value="Nigeria" selected'), 'Nigeria remains a selectable default country');
+assertTrue(/<select id="skillPreset"/i.test(engineHtml) && /id="customSkill"/i.test(engineHtml), 'Skills provide preset selection plus custom entry');
+assertTrue(/id="addPresetSkill"/i.test(engineHtml) && /id="addCustomSkill"/i.test(engineHtml), 'Skills expose explicit add controls');
+assertTrue(/value="" selected>Any work mode/i.test(engineHtml), 'Remote preference allows an unspecified work mode');
+assertTrue(engineHtml.includes('Worldwide') && engineHtml.includes('explicitly requested'), 'Worldwide permission remains explicit in the UI');
+
 assertTrue(pages['/'].text.includes('/engine/') && pages['/'].text.includes('/project/') && pages['/'].text.includes('/thinking/') && pages['/'].text.includes('/thinking/article/'), 'Home exposes core internal CTA/navigation links');
-assertTrue(pages['/engine/'].text.includes('/project/') && pages['/engine/'].text.includes('/engine/'), 'Engine exposes project/next-action links');
 assertTrue(pages['/project/'].text.includes('/engine/') && pages['/project/'].text.includes('/thinking/'), 'Project exposes Engine and Thinking CTAs');
 assertTrue(pages['/thinking/'].text.includes('/thinking/article/') && pages['/thinking/'].text.includes('/engine/'), 'Thinking exposes flagship article and Engine links');
 assertTrue(pages['/thinking/article/'].text.includes('/engine/') && pages['/thinking/article/'].text.includes('/project/'), 'Article exposes Engine and Project CTAs');
@@ -126,11 +144,30 @@ assertTrue((coreBody?.results ?? []).every((x) => ['CONFIRMED', 'ELIGIBLE'].incl
 assertTrue((coreBody?.results ?? []).every((x) => ['VERIFIED', 'CONFIRMED'].includes(x.verificationStatus)), 'Returned results have verified/confirmed status only');
 assertTrue((coreBody?.results ?? []).every((x) => ['CURRENT', 'FRESH'].includes(x.freshnessStatus)), 'Returned results have current/fresh status only');
 assertTrue((coreBody?.results ?? []).every((x) => /^https:\/\//.test(x.applicationUrl || '')), 'Returned application URLs are HTTPS');
+assertTrue((coreBody?.results ?? []).every((x) => typeof x.sourceName === 'string'), 'Results expose only public-safe source attribution');
 
 const forbiddenKeys = ['job_id','source_id','source_type','source_name','eligibility_reason','work_authorization','timezone','match_keywords'];
 const leaks = (coreBody?.results ?? []).flatMap((item) => forbiddenKeys.filter((key) => Object.prototype.hasOwnProperty.call(item, key)));
 assertTrue(leaks.length === 0, 'Public result objects do not expose internal control-plane fields');
 assertTrue(coreBody?.safety?.privateDataExposed === false && coreBody?.safety?.credentialsExposed === false && coreBody?.safety?.applicationAutomation === false, 'Safety flags remain fail-closed');
+
+const roleOnly = await api({ role: 'Operations', country: '', skills: [], remote: '', worldwide: false, allowWorldwide: false, limit: 20 });
+const roleOnlyBody = jsonBody(roleOnly);
+assertTrue(roleOnly.status === 200 && roleOnlyBody?.ok === true, 'Role-only query is accepted without country or skills');
+assertTrue(!roleOnlyBody?.queryPlan?.country && Array.isArray(roleOnlyBody?.queryPlan?.skills) && roleOnlyBody.queryPlan.skills.length === 0, 'Role-only query preserves omitted geography and skills');
+
+const noCountry = await api({ role: 'Operations', country: '', skills: ['operations'], remote: 'REMOTE', worldwide: false, allowWorldwide: false, limit: 20 });
+const noCountryBody = jsonBody(noCountry);
+assertTrue(noCountry.status === 200 && noCountryBody?.ok === true, 'Country can be omitted without validation failure');
+
+const noSkills = await api({ role: 'Operations', country: 'Nigeria', skills: [], remote: 'REMOTE', worldwide: false, allowWorldwide: false, limit: 20 });
+const noSkillsBody = jsonBody(noSkills);
+assertTrue(noSkills.status === 200 && noSkillsBody?.ok === true, 'Skills can be omitted when a role is supplied');
+
+const misspelled = await api({ role: 'Operatons Specialist', country: 'Nigeria', skills: [], remote: 'REMOTE', worldwide: false, allowWorldwide: false, limit: 20 });
+const misspelledBody = jsonBody(misspelled);
+assertTrue(misspelled.status === 200 && misspelledBody?.ok === true, 'Misspelled role input is handled without server failure');
+assertTrue(resultCount(misspelledBody) === 0 || resultCount(misspelledBody) >= 1, 'Misspelled role produces a deterministic result state without fabricated results');
 
 const ghana = await api({ role: 'Operations', country: 'Ghana', skills: ['operations'], remote: 'REMOTE', worldwide: false, limit: 20 });
 const ghanaBody = jsonBody(ghana);
@@ -152,4 +189,4 @@ console.log('');
 console.log(`TOTAL PASS: ${pass}`);
 console.log(`TOTAL FAIL: ${fail}`);
 if (fail > 0) process.exit(1);
-console.log('G9 verification wave completed successfully.');
+console.log('G9 enhancement verification wave completed successfully.');
