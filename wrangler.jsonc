@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "ese-digitals-platform",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-12",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://ese-digitals-platform.legaldept-nrc.workers.dev"
+  },
+  "ratelimits": [
+    {
+      "name": "OPPORTUNITY_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "OPPORTUNITY_DB",
+      "database_name": "ese-digitals-opportunities",
+      "database_id": "16a87c30-9731-482e-8613-8e9b9f8e1c57",
+      "remote": true
+    }
+  ]
+}
