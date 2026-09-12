@@ -20,5 +20,13 @@
         "period": 60
       }
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "OPPORTUNITY_DB",
+      "database_name": "ese-digitals-opportunities",
+      "database_id": "16a87c30-9731-482e-8613-8e9b9f8e1c57",
+      "remote": true
+    }
   ]
 }
