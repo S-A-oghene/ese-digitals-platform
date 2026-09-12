@@ -14,11 +14,49 @@ function Assert-True([bool]$Condition, [string]$Message) {
   }
 }
 
-function Get-Checked([string]$Url) {
-  return Invoke-WebRequest -Uri $Url -Method Get -UseBasicParsing -MaximumRedirection 5
+function Read-ErrorResponse([object]$Response) {
+  $body = ''
+  if ($null -ne $Response) {
+    try {
+      $stream = $Response.GetResponseStream()
+      if ($null -ne $stream) {
+        $reader = New-Object System.IO.StreamReader($stream)
+        try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
+      }
+    } catch {
+      $body = ''
+    }
+  }
+  return $body
 }
 
-function Invoke-Api([hashtable]$Body, [hashtable]$Headers = @{}, [string]$Method = 'POST') {
+function Get-Checked([string]$Url) {
+  try {
+    $response = Invoke-WebRequest -Uri $Url -Method Get -UseBasicParsing -MaximumRedirection 5
+    return [pscustomobject]@{
+      StatusCode = [int]$response.StatusCode
+      Content = [string]$response.Content
+      Headers = $response.Headers
+    }
+  } catch {
+    $response = $_.Exception.Response
+    $status = 0
+    $headers = @{}
+    $content = ''
+    if ($null -ne $response) {
+      try { $status = [int]$response.StatusCode } catch {}
+      try { $headers = $response.Headers } catch {}
+      $content = Read-ErrorResponse $response
+    }
+    return [pscustomobject]@{
+      StatusCode = $status
+      Content = $content
+      Headers = $headers
+    }
+  }
+}
+
+function Invoke-Api([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
   $json = if ($null -ne $Body) { $Body | ConvertTo-Json -Depth 8 -Compress } else { $null }
   $request = @{
     Uri = $Api
@@ -26,16 +64,43 @@ function Invoke-Api([hashtable]$Body, [hashtable]$Headers = @{}, [string]$Method
     Headers = $Headers
     UseBasicParsing = $true
   }
-  if ($null -ne $json) {
+
+  if ($null -ne $RawBody) {
+    $request.ContentType = $ContentType
+    $request.Body = $RawBody
+  } elseif (($Method -ne 'GET') -and ($null -ne $json)) {
     $request.ContentType = 'application/json'
     $request.Body = $json
   }
+
   try {
-    return Invoke-WebRequest @request
+    $response = Invoke-WebRequest @request
+    return [pscustomobject]@{
+      StatusCode = [int]$response.StatusCode
+      Content = [string]$response.Content
+      Headers = $response.Headers
+    }
   } catch {
-    if ($_.Exception.Response) { return $_.Exception.Response }
-    throw
+    $response = $_.Exception.Response
+    $status = 0
+    $headers = @{}
+    $content = ''
+    if ($null -ne $response) {
+      try { $status = [int]$response.StatusCode } catch {}
+      try { $headers = $response.Headers } catch {}
+      $content = Read-ErrorResponse $response
+    }
+    return [pscustomobject]@{
+      StatusCode = $status
+      Content = $content
+      Headers = $headers
+    }
   }
+}
+
+function Get-JsonBody([object]$Response) {
+  if ($null -eq $Response -or [string]::IsNullOrWhiteSpace([string]$Response.Content)) { return $null }
+  try { return ([string]$Response.Content | ConvertFrom-Json) } catch { return $null }
 }
 
 Write-Host '============================================================='
@@ -88,52 +153,38 @@ $privatePaths = @(
   '/docs/G9.6_D1_FREE_FIRST_IMPLEMENTATION.md'
 )
 foreach ($path in $privatePaths) {
-  try {
-    $r = Get-Checked ($Base + $path)
-    $status = $r.StatusCode
-  } catch {
-    $status = [int]$_.Exception.Response.StatusCode.value__
-  }
-  Assert-True ($status -eq 404) "Public asset boundary blocks $path (HTTP $status)"
+  $r = Get-Checked ($Base + $path)
+  Assert-True ($r.StatusCode -eq 404) "Public asset boundary blocks $path (HTTP $($r.StatusCode))"
 }
 
 # G9.16 — API contract and adversarial boundaries
-try { $r = Invoke-Api -Body @{ role = 'Operations' } -Method 'GET'; $status = $r.StatusCode } catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Method 'GET'
+$status = $r.StatusCode
 Assert-True ($status -eq 405) "GET /api/opportunities rejected (HTTP $status)"
 
-try {
-  $r = Invoke-WebRequest -Uri $Api -Method Post -ContentType 'text/plain' -Body 'hello' -UseBasicParsing
-  $status = $r.StatusCode
-} catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Method 'POST' -RawBody 'hello' -ContentType 'text/plain'
+$status = $r.StatusCode
 Assert-True ($status -eq 415) "Non-JSON content rejected (HTTP $status)"
 
-try {
-  $r = Invoke-WebRequest -Uri $Api -Method Post -ContentType 'application/json' -Body '{bad-json' -UseBasicParsing
-  $status = $r.StatusCode
-} catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Method 'POST' -RawBody '{bad-json' -ContentType 'application/json'
+$status = $r.StatusCode
 Assert-True ($status -eq 400) "Invalid JSON rejected (HTTP $status)"
 
-try {
-  $r = Invoke-Api -Body @{}
-  $status = $r.StatusCode
-} catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Body @{}
+$status = $r.StatusCode
 Assert-True ($status -eq 400) "Empty search intent rejected (HTTP $status)"
 
 $oversized = ('A' * 21000)
-try {
-  $r = Invoke-WebRequest -Uri $Api -Method Post -ContentType 'application/json' -Body ('{"role":"' + $oversized + '"}') -UseBasicParsing
-  $status = $r.StatusCode
-} catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Method 'POST' -RawBody ('{"role":"' + $oversized + '"}') -ContentType 'application/json'
+$status = $r.StatusCode
 Assert-True ($status -eq 400) "Oversized request rejected (HTTP $status)"
 
-try {
-  $r = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; limit = 20 } -Headers @{ Origin = 'https://evil.example' }
-  $status = $r.StatusCode
-} catch { $status = [int]$_.Exception.Response.StatusCode.value__ }
+$r = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; limit = 20 } -Headers @{ Origin = 'https://evil.example' }
+$status = $r.StatusCode
 Assert-True ($status -eq 403) "Unapproved browser origin rejected (HTTP $status)"
 
 $core = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; allowWorldwide = $false; limit = 20 }
-$coreBody = $core.Content | ConvertFrom-Json
+$coreBody = Get-JsonBody $core
 Assert-True ($core.StatusCode -eq 200 -and $coreBody.ok -eq $true) 'Nigeria remote Operations query succeeds'
 Assert-True (($coreBody.results | Measure-Object).Count -ge 1) 'Nigeria remote Operations query returns at least one result'
 Assert-True (($coreBody.results | Where-Object { $_.eligibilityStatus -notin @('CONFIRMED','ELIGIBLE') }).Count -eq 0) 'Returned results have eligible status only'
@@ -152,20 +203,20 @@ Assert-True ($leaks.Count -eq 0) 'Public result objects do not expose internal c
 Assert-True ($coreBody.safety.privateDataExposed -eq $false -and $coreBody.safety.credentialsExposed -eq $false -and $coreBody.safety.applicationAutomation -eq $false) 'Safety flags remain fail-closed'
 
 $ghana = Invoke-Api -Body @{ role = 'Operations'; country = 'Ghana'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; limit = 20 }
-$ghanaBody = $ghana.Content | ConvertFrom-Json
+$ghanaBody = Get-JsonBody $ghana
 Assert-True (($ghana.StatusCode -eq 200) -and (($ghanaBody.results | Measure-Object).Count -eq 0)) 'Ghana boundary returns no Nigeria-only eligible results'
 
 $onsite = Invoke-Api -Body @{ role = 'Workplace Operations'; country = 'Nigeria'; skills = @('facilities','logistics'); remote = 'ON-SITE'; worldwide = $false; limit = 20 }
-$onsiteBody = $onsite.Content | ConvertFrom-Json
+$onsiteBody = Get-JsonBody $onsite
 Assert-True (($onsite.StatusCode -eq 200) -and (($onsiteBody.results | Where-Object { $_.remoteType -ne 'ON-SITE' }).Count -eq 0)) 'On-site boundary does not return remote results'
 
 $world = Invoke-Api -Body @{ role = 'Operations'; country = ''; skills = @('operations'); remote = 'REMOTE'; worldwide = $true; allowWorldwide = $true; limit = 20 }
-$worldBody = $world.Content | ConvertFrom-Json
+$worldBody = Get-JsonBody $world
 Assert-True ($world.StatusCode -eq 200 -and $worldBody.ok -eq $true) 'Explicit worldwide query succeeds only with explicit permission'
 
 $implicitWorld = Invoke-Api -Body @{ role = 'Operations'; country = ''; skills = @('operations'); worldwide = $true; allowWorldwide = $false; limit = 20 }
-$implicitBody = $implicitWorld.Content | ConvertFrom-Json
-Assert-True ($implicitWorld.StatusCode -eq 400 -and $implicitBody.error -eq 'WORLDWIDE_PERMISSION_REQUIRED') 'Implicit worldwide expansion is rejected'
+$implicitBody = Get-JsonBody $implicitWorld
+Assert-True ($implicitWorld.StatusCode -eq 400 -and $null -ne $implicitBody -and $implicitBody.error -eq 'WORLDWIDE_PERMISSION_REQUIRED') 'Implicit worldwide expansion is rejected'
 
 Write-Host ''
 Write-Host "TOTAL PASS: $Pass"
