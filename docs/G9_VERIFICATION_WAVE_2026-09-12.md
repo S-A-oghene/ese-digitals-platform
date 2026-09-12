@@ -2,7 +2,10 @@
 
 Date: 12 September 2026  
 Branch: `g9-website-engine-implementation-2026-09-11`  
-Scope: G9.5 closure → G9.10 → G9.11 → G9.12 → G9.13 → G9.14 → G9.16 → G9.17 preparation → G9.18 readiness
+Verification commit: `a38aa24290f1a5eca25c4314c329c07defc0f96b`  
+Production URL: `https://ese-digitals-platform.legaldept-nrc.workers.dev`  
+Production deployment Version ID: `b18cb080-5795-435d-9ccd-0d40ba9815a3`  
+Scope: G9.5 closure → G9.10 → G9.11 → G9.12 → G9.13 → G9.14 → G9.16 → G9.17 evidence closure → G9.18 readiness
 
 ## Evidence state discipline
 
@@ -12,15 +15,15 @@ This record distinguishes implementation, deployment, live behaviour and verific
 
 | Area | Action | State |
 |---|---|---|
-| G9.5 | Worker + D1 public API path retained as canonical public boundary | IMPLEMENTED |
-| G9.10 | Internal CTA/link structure reviewed across Home, Engine, Project, Thinking and Article | REVIEWED |
-| G9.11 | Canonicals, titles, descriptions, robots and sitemap reviewed | REVIEWED |
-| G9.12 | Public asset exclusions hardened; global security headers added at Worker edge; public error messages reduced to safe forms; IP-based rate key normalised | IMPLEMENTED |
-| G9.13 | Semantic HTML, labelled controls, `aria-live` status regions and responsive viewport reviewed; automated runtime suite added | REVIEWED / AUTOMATION ADDED |
-| G9.14 | End-to-end browser → API → D1 → ranked result journey is live based on production result supplied during this session | LIVE |
-| G9.16 | Adversarial suite expanded to cover HTTP method, content type, malformed JSON, oversized body, origin boundary, country boundary, remote boundary, worldwide permission, public-field leakage and safety flags | AUTOMATION ADDED |
-| G9.17 | This record provides the evidence-pack scaffold; runtime outputs must still be attached | IN PREPARATION |
-| G9.18 | Final gate remains conditional on runtime suite + deployment evidence | PENDING |
+| G9.5 | Worker + D1 public API path retained as canonical public boundary | IMPLEMENTED / LIVE |
+| G9.10 | Internal CTA/link structure reviewed across Home, Engine, Project, Thinking and Article | REVIEWED / LIVE |
+| G9.11 | Canonicals, titles, descriptions, robots and sitemap reviewed | REVIEWED / LIVE |
+| G9.12 | Public asset exclusions hardened; global security headers added at Worker edge; public error messages reduced to safe forms; IP-based rate key normalised | IMPLEMENTED / LIVE / VERIFIED |
+| G9.13 | Semantic HTML, labelled controls, `aria-live` status regions and responsive viewport reviewed; automated runtime suite added | REVIEWED / AUTOMATION / VERIFIED |
+| G9.14 | End-to-end browser → API → D1 → ranked result journey is live | LIVE / VERIFIED |
+| G9.16 | Adversarial suite covers HTTP method, content type, malformed JSON, oversized body, origin boundary, country boundary, remote boundary, worldwide permission, public-field leakage and safety flags | VERIFIED |
+| G9.17 | Evidence pack and runtime evidence record completed in repository; deployment/runtime evidence recorded | VERIFIED / CLOSURE IN PROGRESS |
+| G9.18 | Final gate may proceed subject to the remaining manual evidence requirements and sign-off | READY FOR FINAL MANUAL GATE |
 
 ## Security boundary review
 
@@ -36,20 +39,49 @@ The primary journey is represented by Home → Opportunity Engine → structured
 
 All five public routes define canonical URLs. The site has route-specific titles and descriptions, and the canonical Article includes Open Graph title/description/type/url metadata. `robots.txt` allows indexing and points to the sitemap; the sitemap lists the five intended public routes.
 
-## Known runtime evidence
+## Production verification evidence
 
-A production browser search has already returned four ranked opportunities through the canonical engine, with discovered/normalized/eligible/returned counts and evidence-safe result links. This establishes LIVE behaviour for the core G9.14 journey, but it does not replace the formal adversarial run below.
-
-## Required runtime command
-
-From the repository root on Windows CMD:
+The formal verification wave was executed from Windows CMD with:
 
 ```cmd
 scripts\g9_verification_wave.cmd
 ```
 
-The command performs a Wrangler dry-run and then runs the production verification suite in `scripts/g9_verification_wave.ps1`. The suite exits non-zero on any failed assertion.
+The wrapper performed a Wrangler dry-run followed by the Node.js production verification suite. The final runtime result was:
 
-## Final evidence to capture after runtime execution
+```text
+TOTAL PASS: 56
+TOTAL FAIL: 0
+G9 verification wave completed successfully.
+VERIFICATION WAVE RESULT: PASS
+```
 
-Record the exact command output, deployment version ID, production URL, browser screenshot of the successful Nigeria search, and the final PASS/FAIL totals. G9.18 must not be marked PASS until every mandatory verification item has a corresponding evidence record.
+The successful run verified all route, metadata, security-header, public-asset-boundary, API-contract, eligibility, verification, freshness, URL, public-field, safety, country, remote/on-site and worldwide-permission assertions.
+
+The production API core query was independently confirmed during the same session as HTTP 200 / `SUCCESS`, returning 5 discovered, 4 eligible and 4 ranked opportunities.
+
+## Important verification transport decision
+
+The final verification suite uses a Node.js native `fetch()` client (`scripts/g9_verification_wave.mjs`) rather than PowerShell/curl for API assertions. This was adopted after repeated Windows shell argument/JSON-body transport failures. The production Worker and D1 path were not weakened or altered to accommodate the test harness.
+
+## G9.17 evidence checklist
+
+| Evidence item | State | Record |
+|---|---|---|
+| Exact verification command | CAPTURED | `scripts\g9_verification_wave.cmd` |
+| Exact verification commit | CAPTURED | `a38aa24290f1a5eca25c4314c329c07defc0f96b` |
+| Final PASS/FAIL totals | CAPTURED | 56 PASS / 0 FAIL |
+| Production URL | CAPTURED | `https://ese-digitals-platform.legaldept-nrc.workers.dev` |
+| Production deployment Version ID | CAPTURED | `b18cb080-5795-435d-9ccd-0d40ba9815a3` |
+| Successful core journey | CAPTURED | 200 / SUCCESS / 4 returned |
+| Security and asset-boundary evidence | CAPTURED | 6 security-header checks + 9 protected paths |
+| Manual browser screenshot | REQUIRED | Attach final successful Nigeria search screenshot |
+| Final manual sign-off | REQUIRED | Complete the applicable G9.18 approval/sign-off record |
+
+## G9.18 gate position
+
+G9.18 is now **READY FOR FINAL MANUAL GATE**. The technical verification wave is complete with zero failures. G9.18 should only be marked PASS after the remaining manual evidence items are attached and the applicable manual approval/sign-off requirements are satisfied.
+
+## Closure rule
+
+No subsequent implementation change should be made merely to improve the verification score. Any new defect must be evaluated against the production path first, and alternative verification approaches should be used where the test harness is the actual source of failure.
