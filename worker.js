@@ -12,7 +12,9 @@ const API_PATH = '/api/opportunities';
 const MAX_BODY_BYTES = 20000;
 const API_VERSION = '1.2-D1';
 
-const SECURITY_HEADERS = Object.freeze({
+// Plain object keeps the Worker source maximally compatible with managed
+// Wrangler/esbuild build environments while retaining the security controls.
+const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
   'X-Content-Type-Options': 'nosniff',
@@ -168,7 +170,7 @@ export default {
 
     const response = await env.ASSETS.fetch(request);
     const headers = new Headers(response.headers);
-    for (const [key, value] of Object.entries(SECURITY_HEADERS)) headers.set(key, value);
+    for (const key of Object.keys(SECURITY_HEADERS)) headers.set(key, SECURITY_HEADERS[key]);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
