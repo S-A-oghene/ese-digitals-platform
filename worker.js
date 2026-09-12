@@ -72,6 +72,23 @@ function responseKind(status, contentType) {
   return 'NON_JSON_CONTENT_TYPE';
 }
 
+function resolveStableAppsScriptEndpoint(backendUrl) {
+  const url = new URL(backendUrl);
+  const segments = url.pathname.split('/').filter(Boolean);
+  const execIndex = segments.indexOf('exec');
+  if (execIndex < 0) throw new Error('BACKEND_URL_INVALID_APPS_SCRIPT_EXEC_PATH');
+
+  const capabilityToken = segments[execIndex + 1] || '';
+  if (!capabilityToken) throw new Error('BACKEND_CAPABILITY_TOKEN_MISSING');
+
+  const stablePath = '/' + segments.slice(0, execIndex + 1).join('/');
+  url.pathname = stablePath;
+  url.search = '';
+  url.hash = '';
+
+  return { endpoint: url.toString(), capabilityToken };
+}
+
 async function handleOpportunity(request, env) {
   const cors = corsHeaders(request);
 
@@ -129,7 +146,6 @@ async function handleOpportunity(request, env) {
   }
 
   if (!env.OPPORTUNITY_BACKEND_URL) {
-    console.log('Opportunity backend URL secret missing');
     return json({
       ok: false,
       error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
@@ -137,16 +153,33 @@ async function handleOpportunity(request, env) {
     }, 503, cors);
   }
 
+  let resolved;
+  try {
+    resolved = resolveStableAppsScriptEndpoint(env.OPPORTUNITY_BACKEND_URL);
+  } catch (error) {
+    console.log('Opportunity backend URL resolution error', String(error));
+    return json({
+      ok: false,
+      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
+      diagnostic: { reason: 'BACKEND_URL_INVALID' },
+    }, 503, cors);
+  }
+
+  const upstreamBody = {
+    ...body,
+    __g9CapabilityToken: resolved.capabilityToken,
+  };
+
   let upstream;
   try {
-    upstream = await fetch(env.OPPORTUNITY_BACKEND_URL, {
+    upstream = await fetch(resolved.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
       redirect: 'follow',
-      body: JSON.stringify(body),
+      body: JSON.stringify(upstreamBody),
     });
   } catch (error) {
     console.log('Opportunity backend fetch error', String(error));
