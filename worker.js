@@ -90,9 +90,10 @@ async function handleOpportunity(request, env) {
     return json({ ok: false, error: 'SERVICE_PROTECTION_UNAVAILABLE' }, 503, cors);
   }
 
-  const rate = await env.OPPORTUNITY_LIMITER.limit({
-    key: `opportunity:${new URL(request.url).pathname}`,
-  });
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const userAgent = (request.headers.get('User-Agent') || 'unknown').slice(0, 160);
+  const rateKey = `opportunity:${ip}:${userAgent}`;
+  const rate = await env.OPPORTUNITY_LIMITER.limit({ key: rateKey });
   if (!rate?.success) {
     return json({ ok: false, error: 'RATE_LIMITED' }, 429, cors);
   }
