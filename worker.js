@@ -12,15 +12,22 @@ const API_PATH = '/api/opportunities';
 const MAX_BODY_BYTES = 20000;
 const API_VERSION = '1.2-D1';
 
+const SECURITY_HEADERS = Object.freeze({
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
+
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer',
-      'X-Frame-Options': 'DENY',
+      ...SECURITY_HEADERS,
       ...extraHeaders,
     },
   });
@@ -51,7 +58,6 @@ function corsHeaders(request) {
     'Vary': 'Origin',
   };
 
-  // Only emit Access-Control-Allow-Origin when a browser supplied an Origin.
   if (origin) headers['Access-Control-Allow-Origin'] = origin;
   return headers;
 }
@@ -64,7 +70,7 @@ async function handleOpportunity(request, env) {
   }
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors });
+    return new Response(null, { status: 204, headers: { ...SECURITY_HEADERS, ...cors } });
   }
 
   if (request.method !== 'POST') {
@@ -80,12 +86,11 @@ async function handleOpportunity(request, env) {
   }
 
   if (!env.OPPORTUNITY_LIMITER || typeof env.OPPORTUNITY_LIMITER.limit !== 'function') {
-    return json({ ok: false, error: 'SERVICE_PROTECTION_UNAVAILABLE' }, 503, cors);
+    return json({ ok: false, error: 'SERVICE_UNAVAILABLE' }, 503, cors);
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const userAgent = (request.headers.get('User-Agent') || 'unknown').slice(0, 160);
-  const rateKey = `opportunity:${ip}:${userAgent}`;
+  const rateKey = `opportunity:${ip}`;
   try {
     const rate = await env.OPPORTUNITY_LIMITER.limit({ key: rateKey });
     if (!rate?.success) {
@@ -93,7 +98,7 @@ async function handleOpportunity(request, env) {
     }
   } catch (error) {
     console.log('Opportunity rate-limit error', String(error));
-    return json({ ok: false, error: 'SERVICE_PROTECTION_UNAVAILABLE' }, 503, cors);
+    return json({ ok: false, error: 'SERVICE_UNAVAILABLE' }, 503, cors);
   }
 
   const bodyText = await request.text();
@@ -117,8 +122,8 @@ async function handleOpportunity(request, env) {
       ok: false,
       status: 'SERVICE_UNAVAILABLE',
       contractVersion: API_VERSION,
-      error: 'OPPORTUNITY_DB_NOT_CONFIGURED',
-      message: 'Opportunity database is not configured on this Worker deployment.',
+      error: 'SERVICE_UNAVAILABLE',
+      message: 'The Opportunity Engine is temporarily unavailable.',
       safety: {
         persistentWrite: false,
         deliveryAttempted: false,
@@ -140,7 +145,7 @@ async function handleOpportunity(request, env) {
       ok: false,
       status: 'SERVICE_UNAVAILABLE',
       contractVersion: API_VERSION,
-      error: 'OPPORTUNITY_DB_QUERY_FAILED',
+      error: 'SERVICE_UNAVAILABLE',
       safety: {
         persistentWrite: false,
         deliveryAttempted: false,
@@ -161,6 +166,13 @@ export default {
       return handleOpportunity(request, env);
     }
 
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(SECURITY_HEADERS)) headers.set(key, value);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   },
 };
