@@ -56,7 +56,7 @@ function Get-Checked([string]$Url) {
   }
 }
 
-function Invoke-Api([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
+function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
   $json = if ($null -ne $Body) { $Body | ConvertTo-Json -Depth 8 -Compress } else { $null }
   $request = @{
     Uri = $Api
@@ -96,6 +96,16 @@ function Invoke-Api([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string
       Headers = $headers
     }
   }
+}
+
+function Invoke-Api([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
+  $response = Invoke-ApiOnce -Body $Body -Headers $Headers -Method $Method -RawBody $RawBody -ContentType $ContentType
+  if ($response.StatusCode -eq 429) {
+    Write-Host 'INFO  Production rate limit encountered; waiting 61 seconds before retry.'
+    Start-Sleep -Seconds 61
+    $response = Invoke-ApiOnce -Body $Body -Headers $Headers -Method $Method -RawBody $RawBody -ContentType $ContentType
+  }
+  return $response
 }
 
 function Get-JsonBody([object]$Response) {
@@ -160,28 +170,28 @@ foreach ($path in $privatePaths) {
 # G9.16 — API contract and adversarial boundaries
 $r = Invoke-Api -Method 'GET'
 $status = $r.StatusCode
+if ($status -eq 0) {
+  # PowerShell 5.1 can hide non-2xx status from the exception object; curl provides a direct status proof.
+  $curlStatus = & curl.exe -sS -o NUL -w "%{http_code}" $Api
+  $status = [int]$curlStatus
+}
 Assert-True ($status -eq 405) "GET /api/opportunities rejected (HTTP $status)"
 
 $r = Invoke-Api -Method 'POST' -RawBody 'hello' -ContentType 'text/plain'
-$status = $r.StatusCode
-Assert-True ($status -eq 415) "Non-JSON content rejected (HTTP $status)"
+Assert-True ($r.StatusCode -eq 415) "Non-JSON content rejected (HTTP $($r.StatusCode))"
 
 $r = Invoke-Api -Method 'POST' -RawBody '{bad-json' -ContentType 'application/json'
-$status = $r.StatusCode
-Assert-True ($status -eq 400) "Invalid JSON rejected (HTTP $status)"
+Assert-True ($r.StatusCode -eq 400) "Invalid JSON rejected (HTTP $($r.StatusCode))"
 
 $r = Invoke-Api -Body @{}
-$status = $r.StatusCode
-Assert-True ($status -eq 400) "Empty search intent rejected (HTTP $status)"
+Assert-True ($r.StatusCode -eq 400) "Empty search intent rejected (HTTP $($r.StatusCode))"
 
 $oversized = ('A' * 21000)
 $r = Invoke-Api -Method 'POST' -RawBody ('{"role":"' + $oversized + '"}') -ContentType 'application/json'
-$status = $r.StatusCode
-Assert-True ($status -eq 400) "Oversized request rejected (HTTP $status)"
+Assert-True ($r.StatusCode -eq 400) "Oversized request rejected (HTTP $($r.StatusCode))"
 
 $r = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; limit = 20 } -Headers @{ Origin = 'https://evil.example' }
-$status = $r.StatusCode
-Assert-True ($status -eq 403) "Unapproved browser origin rejected (HTTP $status)"
+Assert-True ($r.StatusCode -eq 403) "Unapproved browser origin rejected (HTTP $($r.StatusCode))"
 
 $core = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; allowWorldwide = $false; limit = 20 }
 $coreBody = Get-JsonBody $core
