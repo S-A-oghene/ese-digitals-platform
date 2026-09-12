@@ -168,10 +168,15 @@ foreach ($path in $privatePaths) {
 }
 
 # G9.16 — API contract and adversarial boundaries
+# The production limiter is intentionally 20 requests / 60 seconds and applies before
+# request validation. Begin this API phase with a clean-window pause so earlier browser
+# searches or previous verification attempts do not contaminate this run.
+Write-Host 'INFO  Waiting 65 seconds for a clean production API rate-limit window.'
+Start-Sleep -Seconds 65
+
 $r = Invoke-Api -Method 'GET'
 $status = $r.StatusCode
 if ($status -eq 0) {
-  # PowerShell 5.1 can hide non-2xx status from the exception object; curl provides a direct status proof.
   $curlStatus = & curl.exe -sS -o NUL -w "%{http_code}" $Api
   $status = [int]$curlStatus
 }
@@ -195,6 +200,9 @@ Assert-True ($r.StatusCode -eq 403) "Unapproved browser origin rejected (HTTP $(
 
 $core = Invoke-Api -Body @{ role = 'Operations'; country = 'Nigeria'; skills = @('operations'); remote = 'REMOTE'; worldwide = $false; allowWorldwide = $false; limit = 20 }
 $coreBody = Get-JsonBody $core
+if ($core.StatusCode -ne 200) {
+  Write-Host "INFO  Core query HTTP $($core.StatusCode); response body: $($core.Content)"
+}
 Assert-True ($core.StatusCode -eq 200 -and $coreBody.ok -eq $true) 'Nigeria remote Operations query succeeds'
 Assert-True (($coreBody.results | Measure-Object).Count -ge 1) 'Nigeria remote Operations query returns at least one result'
 Assert-True (($coreBody.results | Where-Object { $_.eligibilityStatus -notin @('CONFIRMED','ELIGIBLE') }).Count -eq 0) 'Returned results have eligible status only'
