@@ -29,12 +29,12 @@ async function request(url, options = {}) {
   }
 }
 
-async function api(body, { method = 'POST', origin } = {}) {
+async function api(body, { method = 'POST', origin, contentType = 'application/json' } = {}) {
   const headers = {};
-  if (method !== 'GET') headers['Content-Type'] = 'application/json';
+  if (method !== 'GET' && contentType !== null) headers['Content-Type'] = contentType;
   if (origin) headers.Origin = origin;
   const options = { method, headers };
-  if (body !== undefined && method !== 'GET') options.body = JSON.stringify(body);
+  if (body !== undefined && method !== 'GET') options.body = typeof body === 'string' ? body : JSON.stringify(body);
   return request(API, options);
 }
 
@@ -101,7 +101,7 @@ await sleep(65000);
 let r = await api(undefined, { method: 'GET' });
 assertTrue(r.status === 405, `GET /api/opportunities rejected (HTTP ${r.status})`);
 
-r = await api(undefined, { method: 'POST' });
+r = await api('hello', { method: 'POST', contentType: 'text/plain' });
 assertTrue(r.status === 415, `Non-JSON content rejected (HTTP ${r.status})`);
 
 r = await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{bad-json' });
