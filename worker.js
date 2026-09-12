@@ -129,7 +129,12 @@ async function handleOpportunity(request, env) {
   }
 
   if (!env.OPPORTUNITY_BACKEND_URL) {
-    return json({ ok: false, error: 'OPPORTUNITY_BACKEND_UNAVAILABLE' }, 503, cors);
+    console.log('Opportunity backend URL secret missing');
+    return json({
+      ok: false,
+      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
+      diagnostic: { reason: 'BACKEND_URL_SECRET_MISSING' },
+    }, 503, cors);
   }
 
   let upstream;
@@ -145,7 +150,11 @@ async function handleOpportunity(request, env) {
     });
   } catch (error) {
     console.log('Opportunity backend fetch error', String(error));
-    return json({ ok: false, error: 'OPPORTUNITY_BACKEND_UNAVAILABLE' }, 503, cors);
+    return json({
+      ok: false,
+      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
+      diagnostic: { reason: 'BACKEND_FETCH_FAILED' },
+    }, 503, cors);
   }
 
   const upstreamStatus = upstream.status;
