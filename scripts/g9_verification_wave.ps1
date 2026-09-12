@@ -49,9 +49,10 @@ function Get-Checked([string]$Url) {
 function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
   $json = if ($null -ne $Body) { $Body | ConvertTo-Json -Depth 8 -Compress } else { $null }
   $headerFile = [System.IO.Path]::GetTempFileName()
-  $bodyFile = [System.IO.Path]::GetTempFileName()
+  $responseBodyFile = [System.IO.Path]::GetTempFileName()
+  $requestBodyFile = $null
   try {
-    $curlArgs = @('-sS', '-D', $headerFile, '-o', $bodyFile, '-w', '%{http_code}', '-X', $Method, $Api)
+    $curlArgs = @('-sS', '-D', $headerFile, '-o', $responseBodyFile, '-w', '%{http_code}', '-X', $Method, $Api)
 
     if ($Method -ne 'GET') {
       $curlArgs += @('-H', "Content-Type: $ContentType")
@@ -62,9 +63,13 @@ function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [st
     }
 
     if ($null -ne $RawBody) {
-      $curlArgs += @('--data-raw', $RawBody)
+      $requestBodyFile = [System.IO.Path]::GetTempFileName()
+      [System.IO.File]::WriteAllText($requestBodyFile, [string]$RawBody, [System.Text.UTF8Encoding]::new($false))
+      $curlArgs += @('--data-binary', "@$requestBodyFile")
     } elseif (($Method -ne 'GET') -and ($null -ne $json)) {
-      $curlArgs += @('--data-raw', $json)
+      $requestBodyFile = [System.IO.Path]::GetTempFileName()
+      [System.IO.File]::WriteAllText($requestBodyFile, [string]$json, [System.Text.UTF8Encoding]::new($false))
+      $curlArgs += @('--data-binary', "@$requestBodyFile")
     }
 
     $statusText = & curl.exe @curlArgs
@@ -81,7 +86,7 @@ function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [st
       }
     }
 
-    $content = if (Test-Path $bodyFile) { [string](Get-Content -LiteralPath $bodyFile -Raw) } else { '' }
+    $content = if (Test-Path $responseBodyFile) { [string](Get-Content -LiteralPath $responseBodyFile -Raw) } else { '' }
     if ($curlExit -ne 0 -and $status -eq 0) {
       Write-Host "INFO  curl exit code $curlExit"
     }
@@ -93,7 +98,10 @@ function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [st
     }
   } finally {
     Remove-Item -LiteralPath $headerFile -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $responseBodyFile -Force -ErrorAction SilentlyContinue
+    if ($null -ne $requestBodyFile) {
+      Remove-Item -LiteralPath $requestBodyFile -Force -ErrorAction SilentlyContinue
+    }
   }
 }
 
