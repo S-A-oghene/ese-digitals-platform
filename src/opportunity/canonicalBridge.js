@@ -96,14 +96,14 @@ export async function runCanonicalOpportunityBridge(env, input) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     const token = String(env.CANONICAL_API_TOKEN || '').trim();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const upstreamInput = { ...(safeObject(input) ? input : {}), ...(token ? { _bridgeToken: token } : {}) };
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
 
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers,
-      body: JSON.stringify(input),
+      body: JSON.stringify(upstreamInput),
       signal: controller.signal,
       redirect: 'error',
     });
