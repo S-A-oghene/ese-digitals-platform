@@ -7,6 +7,9 @@
     "directory": ".",
     "binding": "ASSETS"
   },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://ese-digitals-platform.legaldept-nrc.workers.dev"
+  },
   "secrets": {
     "required": ["OPPORTUNITY_BACKEND_URL"]
   },
