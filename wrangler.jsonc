@@ -1,8 +1,23 @@
 {
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
   "name": "ese-digitals-platform",
-  "compatibility_date": "2026-09-11",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-12",
   "assets": {
-    "directory": "."
-  }
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "secrets": {
+    "required": ["OPPORTUNITY_BACKEND_URL"]
+  },
+  "ratelimits": [
+    {
+      "name": "OPPORTUNITY_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    }
+  ]
 }
