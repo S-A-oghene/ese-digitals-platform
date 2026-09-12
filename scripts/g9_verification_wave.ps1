@@ -54,18 +54,18 @@ foreach ($route in $routes) {
   Assert-True ($r.Content -match 'rel="canonical"') "$route has a canonical link"
 }
 
-$home = Get-Checked ($Base + '/')
-$engine = Get-Checked ($Base + '/engine/')
-$project = Get-Checked ($Base + '/project/')
-$thinking = Get-Checked ($Base + '/thinking/')
-$article = Get-Checked ($Base + '/thinking/article/')
+$homePage = Get-Checked ($Base + '/')
+$enginePage = Get-Checked ($Base + '/engine/')
+$projectPage = Get-Checked ($Base + '/project/')
+$thinkingPage = Get-Checked ($Base + '/thinking/')
+$articlePage = Get-Checked ($Base + '/thinking/article/')
 
-Assert-True ($home.Content -match '/engine/' -and $home.Content -match '/project/' -and $home.Content -match '/thinking/' -and $home.Content -match '/thinking/article/') 'Home exposes core internal CTA/navigation links'
-Assert-True ($engine.Content -match '/project/' -and $engine.Content -match '/engine/') 'Engine exposes project/next-action links'
-Assert-True ($project.Content -match '/engine/' -and $project.Content -match '/thinking/') 'Project exposes Engine and Thinking CTAs'
-Assert-True ($thinking.Content -match '/thinking/article/' -and $thinking.Content -match '/engine/') 'Thinking exposes flagship article and Engine links'
-Assert-True ($article.Content -match '/engine/' -and $article.Content -match '/project/') 'Article exposes Engine and Project CTAs'
-Assert-True ($article.Content -match 'og:title' -and $article.Content -match 'og:description') 'Article has social metadata'
+Assert-True ($homePage.Content -match '/engine/' -and $homePage.Content -match '/project/' -and $homePage.Content -match '/thinking/' -and $homePage.Content -match '/thinking/article/') 'Home exposes core internal CTA/navigation links'
+Assert-True ($enginePage.Content -match '/project/' -and $enginePage.Content -match '/engine/') 'Engine exposes project/next-action links'
+Assert-True ($projectPage.Content -match '/engine/' -and $projectPage.Content -match '/thinking/') 'Project exposes Engine and Thinking CTAs'
+Assert-True ($thinkingPage.Content -match '/thinking/article/' -and $thinkingPage.Content -match '/engine/') 'Thinking exposes flagship article and Engine links'
+Assert-True ($articlePage.Content -match '/engine/' -and $articlePage.Content -match '/project/') 'Article exposes Engine and Project CTAs'
+Assert-True ($articlePage.Content -match 'og:title' -and $articlePage.Content -match 'og:description') 'Article has social metadata'
 
 $robots = Get-Checked ($Base + '/robots.txt')
 $sitemap = Get-Checked ($Base + '/sitemap.xml')
@@ -73,13 +73,13 @@ Assert-True ($robots.StatusCode -eq 200 -and $robots.Content -match 'Sitemap:') 
 Assert-True ($sitemap.StatusCode -eq 200 -and $sitemap.Content -match '/engine/' -and $sitemap.Content -match '/thinking/article/') 'sitemap.xml lists indexable public routes'
 
 # G9.12 — security headers and asset boundary
-$rootHeaders = $home.Headers
-Assert-True ($rootHeaders['Content-Security-Policy']) 'Content-Security-Policy is present'
-Assert-True ($rootHeaders['Strict-Transport-Security']) 'Strict-Transport-Security is present'
+$rootHeaders = $homePage.Headers
+Assert-True ([bool]$rootHeaders['Content-Security-Policy']) 'Content-Security-Policy is present'
+Assert-True ([bool]$rootHeaders['Strict-Transport-Security']) 'Strict-Transport-Security is present'
 Assert-True ($rootHeaders['X-Content-Type-Options'] -match 'nosniff') 'X-Content-Type-Options is nosniff'
 Assert-True ($rootHeaders['X-Frame-Options'] -match 'DENY') 'X-Frame-Options is DENY'
-Assert-True ($rootHeaders['Referrer-Policy']) 'Referrer-Policy is present'
-Assert-True ($rootHeaders['Permissions-Policy']) 'Permissions-Policy is present'
+Assert-True ([bool]$rootHeaders['Referrer-Policy']) 'Referrer-Policy is present'
+Assert-True ([bool]$rootHeaders['Permissions-Policy']) 'Permissions-Policy is present'
 
 $privatePaths = @(
   '/worker.js', '/wrangler.jsonc', '/.assetsignore', '/.gitattributes',
