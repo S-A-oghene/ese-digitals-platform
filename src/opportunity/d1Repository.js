@@ -58,13 +58,22 @@ function countryMatches(columnValue, country) {
   return values.some((v) => v === target || v.includes(target) || target.includes(v));
 }
 
+function canonicalRemote(value) {
+  const text = normalizeString(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text === 'fully remote' || text === 'remote' || text === 'work from home') return 'remote';
+  if (text === 'remote first') return 'remote-first';
+  if (text === 'hybrid') return 'hybrid';
+  if (text === 'on site') return 'on-site';
+  return text;
+}
+
 function remoteMatches(remoteType, requestedRemote) {
-  const requested = normalizeString(requestedRemote).toLowerCase();
+  const requested = canonicalRemote(requestedRemote);
   if (!requested) return true;
-  const actual = normalizeString(remoteType).toLowerCase();
+  const actual = canonicalRemote(remoteType);
   if (!actual) return false;
-  if (requested === 'remote') return actual.includes('remote');
-  return actual === requested || actual.includes(requested);
+  return actual === requested;
 }
 
 function textSimilarity(terms, text) {
@@ -99,12 +108,11 @@ function employmentScore(job, input) {
 }
 
 function remotePreferenceScore(job, input) {
-  const requested = normalizeString(input.remote).toLowerCase();
+  const requested = canonicalRemote(input.remote);
   if (!requested) return 0.5;
-  const actual = normalizeString(job.remote_type).toLowerCase();
+  const actual = canonicalRemote(job.remote_type);
   if (!actual) return 0;
-  if (requested === 'remote') return actual.includes('remote') ? 1 : 0;
-  return actual === requested || actual.includes(requested) ? 1 : 0;
+  return actual === requested ? 1 : 0;
 }
 
 function seniorityScore(job, input) {
@@ -202,7 +210,7 @@ export async function searchD1Opportunities(db, input) {
   const result = await statement.bind(ftsQuery, D1_MAX_CANDIDATES).all();
   const rows = Array.isArray(result?.results) ? result.results : [];
 
-  const filtered = rows.filter((job) => {
+  const eligible = rows.filter((job) => {
     if (!countryMatches(job.eligible_countries, input.country)) return false;
     if (!remoteMatches(job.remote_type, input.remote)) return false;
     const excluded = parseList(job.excluded_countries).map((v) => v.toLowerCase());
@@ -211,7 +219,7 @@ export async function searchD1Opportunities(db, input) {
     return true;
   });
 
-  const ranked = filtered
+  const ranked = eligible
     .map((job) => ({ job, score: rankJob(job, input) }))
     .sort((a, b) => b.score - a.score || String(a.job.title).localeCompare(String(b.job.title)))
     .slice(0, Math.min(Number(input.limit) || D1_DEFAULT_LIMIT, D1_MAX_LIMIT));
@@ -219,6 +227,7 @@ export async function searchD1Opportunities(db, input) {
   return {
     status: 'SUCCESS',
     candidates: rows,
+    eligible,
     returned: ranked,
     usage: { candidateCap: D1_MAX_CANDIDATES, candidatesRead: rows.length },
   };
