@@ -5,12 +5,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('engineForm');
   if (!form) return;
 
+  const roleInput = document.getElementById('role');
+  const countryInput = document.getElementById('country');
+  const skillPreset = document.getElementById('skillPreset');
+  const addPresetSkill = document.getElementById('addPresetSkill');
+  const customSkill = document.getElementById('customSkill');
+  const addCustomSkill = document.getElementById('addCustomSkill');
+  const selectedSkills = document.getElementById('selectedSkills');
+  const remoteInput = document.getElementById('remote');
+  const worldwideInput = document.getElementById('worldwide');
   const message = document.getElementById('formMessage');
   const result = document.getElementById('result');
   const resultSummary = document.getElementById('resultSummary');
   const resultsList = document.getElementById('resultsList');
   const reviewSummary = document.getElementById('reviewSummary');
   const submitButton = form.querySelector('button[type="submit"]');
+
+  const state = { skills: [] };
 
   const addText = (parent, label, value) => {
     const wrapper = document.createElement('p');
@@ -20,6 +31,55 @@ document.addEventListener('DOMContentLoaded', () => {
     wrapper.appendChild(document.createTextNode(value ?? '—'));
     parent.appendChild(wrapper);
   };
+
+  const normaliseSkill = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+
+  const renderSelectedSkills = () => {
+    selectedSkills.replaceChildren();
+    state.skills.forEach((skill) => {
+      const chip = document.createElement('span');
+      chip.className = 'skill-chip';
+      chip.textContent = skill;
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', `Remove ${skill}`);
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        state.skills = state.skills.filter((item) => item !== skill);
+        renderSelectedSkills();
+      });
+
+      chip.appendChild(remove);
+      selectedSkills.appendChild(chip);
+    });
+  };
+
+  const addSkill = (value) => {
+    const skill = normaliseSkill(value);
+    if (!skill) return false;
+    if (!state.skills.some((item) => item.toLowerCase() === skill.toLowerCase())) {
+      state.skills.push(skill);
+      renderSelectedSkills();
+    }
+    return true;
+  };
+
+  addPresetSkill?.addEventListener('click', () => {
+    if (!skillPreset?.value) return;
+    addSkill(skillPreset.value);
+    skillPreset.value = '';
+  });
+
+  addCustomSkill?.addEventListener('click', () => {
+    if (addSkill(customSkill?.value)) customSkill.value = '';
+  });
+
+  customSkill?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (addSkill(customSkill.value)) customSkill.value = '';
+  });
 
   const formatFailure = (payload, response) => {
     const diagnostic = payload?.diagnostic;
@@ -62,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
       addText(card, 'Freshness', item.freshnessStatus);
       addText(card, 'Verification', item.verificationStatus);
       addText(card, 'Match score', typeof item.matchScore === 'number' ? String(item.matchScore) : '—');
+      if (item.sourceName) addText(card, 'Source', item.sourceName);
 
       if (item.salary && (item.salary.min != null || item.salary.max != null)) {
         const min = item.salary.min ?? '—';
@@ -104,17 +165,13 @@ document.addEventListener('DOMContentLoaded', () => {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
-    const role = document.getElementById('role').value.trim();
-    const country = document.getElementById('country').value.trim();
-    const skills = document.getElementById('skills').value
-      .split(',')
-      .map((skill) => skill.trim())
-      .filter(Boolean);
-    const remote = document.getElementById('remote').value;
-    const worldwide = document.getElementById('worldwide').value === 'yes';
+    const role = roleInput.value.trim();
+    const country = countryInput.value.trim();
+    const remote = remoteInput.value;
+    const worldwide = worldwideInput.value === 'yes';
 
-    if (!role && skills.length === 0) {
-      message.textContent = 'Enter a role or at least one skill / keyword.';
+    if (!role && state.skills.length === 0) {
+      message.textContent = 'Enter a role or add at least one skill / keyword.';
       result.hidden = true;
       return;
     }
@@ -122,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const request = {
       role,
       country,
-      skills,
+      skills: [...state.skills],
       remote,
       worldwide,
       allowWorldwide: worldwide,
@@ -167,4 +224,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (submitButton) submitButton.disabled = false;
     }
   });
+
+  renderSelectedSkills();
 });
