@@ -176,6 +176,7 @@ function publicJob(job, score) {
     description: job.description || '',
     applicationUrl: job.application_url || '',
     sourceUrl: job.source_url || '',
+    sourceName: job.source_name || '',
   };
 }
 
