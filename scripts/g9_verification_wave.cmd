@@ -19,7 +19,7 @@ if errorlevel 1 (
 
 echo.
 echo [1] Production + API verification
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0g9_verification_wave.ps1"
+node "%~dp0g9_verification_wave.mjs"
 set "RC=%ERRORLEVEL%"
 
 echo.
