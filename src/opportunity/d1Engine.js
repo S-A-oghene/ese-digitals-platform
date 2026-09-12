@@ -32,7 +32,6 @@ function normalizeInput(input) {
     return { error: 'ROLE_OR_SKILLS_REQUIRED' };
   }
 
-  // Worldwide remains explicit. It does not silently turn an absent country into global scope.
   if (worldwide && body.allowWorldwide !== true) {
     return { error: 'WORLDWIDE_PERMISSION_REQUIRED' };
   }
@@ -93,7 +92,7 @@ export async function runD1OpportunityEngine(db, input) {
     counts: {
       discovered: query.candidates.length,
       normalized: query.candidates.length,
-      eligible: query.candidates.length,
+      eligible: query.eligible ? query.eligible.length : query.candidates.length,
       returned: results.length,
     },
     results,
