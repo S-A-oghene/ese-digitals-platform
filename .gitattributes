@@ -1,0 +1,2 @@
+# Keep Cloudflare D1 SQL migrations in LF form on Windows and other platforms.
+migrations/*.sql text eol=lf
