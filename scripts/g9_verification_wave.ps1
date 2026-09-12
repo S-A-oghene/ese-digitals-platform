@@ -47,33 +47,63 @@ function Get-Checked([string]$Url) {
 }
 
 function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [string]$Method = 'POST', [string]$RawBody = $null, [string]$ContentType = 'application/json') {
-  $json = if ($null -ne $Body) { $Body | ConvertTo-Json -Depth 8 -Compress } else { $null }
+  $json = if ($null -ne $Body) { [string]($Body | ConvertTo-Json -Depth 8 -Compress) } else { $null }
+  $requestPayload = if ($null -ne $RawBody) { [string]$RawBody } else { $json }
+
   $headerFile = [System.IO.Path]::GetTempFileName()
   $responseBodyFile = [System.IO.Path]::GetTempFileName()
-  $requestBodyFile = $null
+  $errorFile = [System.IO.Path]::GetTempFileName()
+
   try {
-    $curlArgs = @('-sS', '-D', $headerFile, '-o', $responseBodyFile, '-w', '%{http_code}', '-X', $Method, $Api)
+    $arguments = @('-sS', '-D', $headerFile, '-o', $responseBodyFile, '-w', '%{http_code}', '-X', $Method, $Api)
 
     if ($Method -ne 'GET') {
-      $curlArgs += @('-H', "Content-Type: $ContentType")
+      $arguments += @('-H', "Content-Type: $ContentType")
     }
 
     foreach ($key in $Headers.Keys) {
-      $curlArgs += @('-H', "$key`: $($Headers[$key])")
+      $arguments += @('-H', "$key`: $($Headers[$key])")
     }
 
-    if ($null -ne $RawBody) {
-      $requestBodyFile = [System.IO.Path]::GetTempFileName()
-      [System.IO.File]::WriteAllText($requestBodyFile, [string]$RawBody, [System.Text.UTF8Encoding]::new($false))
-      $curlArgs += @('--data-binary', "@$requestBodyFile")
-    } elseif (($Method -ne 'GET') -and ($null -ne $json)) {
-      $requestBodyFile = [System.IO.Path]::GetTempFileName()
-      [System.IO.File]::WriteAllText($requestBodyFile, [string]$json, [System.Text.UTF8Encoding]::new($false))
-      $curlArgs += @('--data-binary', "@$requestBodyFile")
+    # Do not pass JSON as a native PowerShell argument. Windows PowerShell can
+    # reinterpret quoting/escaping before curl sees it. Stream the exact UTF-8
+    # bytes through stdin and tell curl to read the body from stdin.
+    $sendBody = ($Method -ne 'GET' -and $null -ne $requestPayload)
+    if ($sendBody) {
+      $arguments += @('--data-binary', '@-')
     }
 
-    $statusText = & curl.exe @curlArgs
-    $curlExit = $LASTEXITCODE
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'curl.exe'
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.RedirectStandardInput = $sendBody
+    $psi.Arguments = (($arguments | ForEach-Object {
+      $value = [string]$_
+      if ($value -match '[\s"]') { '"' + $value.Replace('"', '\"') + '"' } else { $value }
+    }) -join ' ')
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    [void]$process.Start()
+
+    if ($sendBody) {
+      $utf8 = New-Object System.Text.UTF8Encoding($false)
+      $bytes = $utf8.GetBytes([string]$requestPayload)
+      $stdin = $process.StandardInput.BaseStream
+      $stdin.Write($bytes, 0, $bytes.Length)
+      $stdin.Flush()
+      $stdin.Close()
+    }
+
+    $statusText = $process.StandardOutput.ReadToEnd()
+    $stderrText = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    $curlExit = $process.ExitCode
+    $process.Dispose()
+
     $status = 0
     try { $status = [int](($statusText | Select-Object -Last 1).Trim()) } catch {}
 
@@ -89,6 +119,7 @@ function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [st
     $content = if (Test-Path $responseBodyFile) { [string](Get-Content -LiteralPath $responseBodyFile -Raw) } else { '' }
     if ($curlExit -ne 0 -and $status -eq 0) {
       Write-Host "INFO  curl exit code $curlExit"
+      if (-not [string]::IsNullOrWhiteSpace($stderrText)) { Write-Host "INFO  curl stderr: $stderrText" }
     }
 
     return [pscustomobject]@{
@@ -99,9 +130,7 @@ function Invoke-ApiOnce([hashtable]$Body = $null, [hashtable]$Headers = @{}, [st
   } finally {
     Remove-Item -LiteralPath $headerFile -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $responseBodyFile -Force -ErrorAction SilentlyContinue
-    if ($null -ne $requestBodyFile) {
-      Remove-Item -LiteralPath $requestBodyFile -Force -ErrorAction SilentlyContinue
-    }
+    Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
   }
 }
 
