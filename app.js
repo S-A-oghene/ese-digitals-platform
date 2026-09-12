@@ -21,6 +21,20 @@ document.addEventListener('DOMContentLoaded', () => {
     parent.appendChild(wrapper);
   };
 
+  const formatFailure = (payload, response) => {
+    const diagnostic = payload?.diagnostic;
+    if (diagnostic?.reason) {
+      return `${payload.error || 'Opportunity Engine error'} — ${diagnostic.reason}`;
+    }
+    if (diagnostic?.upstreamStatus || diagnostic?.responseKind) {
+      return `${payload.error || 'Opportunity Engine error'} — upstream ${diagnostic.upstreamStatus ?? 'unknown'} (${diagnostic.responseKind ?? 'unknown'})`;
+    }
+    if (payload?.error) {
+      return `${payload.error}${response?.status ? ` (HTTP ${response.status})` : ''}`;
+    }
+    return 'The Opportunity Engine could not complete this search.';
+  };
+
   const renderResults = (payload) => {
     resultsList.replaceChildren();
     const items = Array.isArray(payload.results) ? payload.results : [];
@@ -129,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const payload = await response.json();
 
       if (!response.ok || payload.ok !== true) {
-        message.textContent = payload.error || 'The Opportunity Engine could not complete this search.';
+        message.textContent = formatFailure(payload, response);
         return;
       }
 
