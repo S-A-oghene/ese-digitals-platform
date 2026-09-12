@@ -150,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const count = Array.isArray(payload.results) ? payload.results.length : 0;
       const reviewCount = Number(payload.reviewRequired || 0);
       message.textContent = count
-        ? `${count} ranked opportunity${count === 1 ? '' : 'ies'} returned by the canonical engine.`
+        ? `${count} ranked opportunit${count === 1 ? 'y' : 'ies'} returned by the canonical engine.`
         : 'The engine completed the search but returned no eligible ranked opportunities.';
 
       resultSummary.textContent = payload.counts
