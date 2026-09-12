@@ -1,14 +1,16 @@
 /*
  * ESE DIGITALS — PUBLIC WEBSITE + OPPORTUNITY API EDGE
  *
- * Static assets and public API share the same Worker.
- * The browser calls same-origin /api/opportunities.
- * The backend URL is a Worker Secret.
+ * The public Opportunity Engine is Worker-native.
+ * D1 is the canonical public-safe opportunity store.
+ * Apps Script remains outside the public Opportunity Engine request path.
  */
+
+import { runD1OpportunityEngine } from './src/opportunity/d1Engine.js';
 
 const API_PATH = '/api/opportunities';
 const MAX_BODY_BYTES = 20000;
-const API_VERSION = '1.1';
+const API_VERSION = '1.2-D1';
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -41,52 +43,6 @@ function corsHeaders(request) {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Vary': 'Origin',
   };
-}
-
-function safePublicPayload(payload) {
-  return {
-    ok: payload?.ok === true,
-    contractVersion: payload?.contractVersion || API_VERSION,
-    status: payload?.status || 'INVALID',
-    queryPlan: payload?.queryPlan || null,
-    counts: payload?.counts || null,
-    results: Array.isArray(payload?.results) ? payload.results : [],
-    reviewRequired: Number(payload?.reviewRequired || 0),
-    safety: payload?.safety || {
-      persistentWrite: false,
-      deliveryAttempted: false,
-      applicationAutomation: false,
-      privateDataExposed: false,
-      credentialsExposed: false,
-      worldwideExpandedImplicitly: false,
-    },
-  };
-}
-
-function responseKind(status, contentType) {
-  const normalized = String(contentType || '').toLowerCase();
-  if (status >= 300 && status < 400) return 'REDIRECT';
-  if (normalized.includes('text/html')) return 'HTML';
-  if (normalized.includes('application/json')) return 'JSON_PARSE_FAILED';
-  if (!normalized) return 'NO_CONTENT_TYPE';
-  return 'NON_JSON_CONTENT_TYPE';
-}
-
-function resolveStableAppsScriptEndpoint(backendUrl) {
-  const url = new URL(backendUrl);
-  const segments = url.pathname.split('/').filter(Boolean);
-  const execIndex = segments.indexOf('exec');
-  if (execIndex < 0) throw new Error('BACKEND_URL_INVALID_APPS_SCRIPT_EXEC_PATH');
-
-  const capabilityToken = segments[execIndex + 1] || '';
-  if (!capabilityToken) throw new Error('BACKEND_CAPABILITY_TOKEN_MISSING');
-
-  const stablePath = '/' + segments.slice(0, execIndex + 1).join('/');
-  url.pathname = stablePath;
-  url.search = '';
-  url.hash = '';
-
-  return { endpoint: url.toString(), capabilityToken };
 }
 
 async function handleOpportunity(request, env) {
@@ -145,88 +101,45 @@ async function handleOpportunity(request, env) {
     return json({ ok: false, error: 'JSON_OBJECT_REQUIRED' }, 400, cors);
   }
 
-  if (!env.OPPORTUNITY_BACKEND_URL) {
+  if (!env.OPPORTUNITY_DB || typeof env.OPPORTUNITY_DB.prepare !== 'function') {
     return json({
       ok: false,
-      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
-      diagnostic: { reason: 'BACKEND_URL_SECRET_MISSING' },
-    }, 503, cors);
-  }
-
-  let resolved;
-  try {
-    resolved = resolveStableAppsScriptEndpoint(env.OPPORTUNITY_BACKEND_URL);
-  } catch (error) {
-    console.log('Opportunity backend URL resolution error', String(error));
-    return json({
-      ok: false,
-      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
-      diagnostic: { reason: 'BACKEND_URL_INVALID' },
-    }, 503, cors);
-  }
-
-  const upstreamBody = {
-    ...body,
-    __g9CapabilityToken: resolved.capabilityToken,
-  };
-
-  let upstream;
-  try {
-    upstream = await fetch(resolved.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+      status: 'SERVICE_UNAVAILABLE',
+      contractVersion: API_VERSION,
+      error: 'OPPORTUNITY_DB_NOT_CONFIGURED',
+      message: 'Opportunity database is not configured on this Worker deployment.',
+      safety: {
+        persistentWrite: false,
+        deliveryAttempted: false,
+        applicationAutomation: false,
+        privateDataExposed: false,
+        credentialsExposed: false,
+        worldwideExpandedImplicitly: false,
       },
-      redirect: 'follow',
-      body: JSON.stringify(upstreamBody),
-    });
-  } catch (error) {
-    console.log('Opportunity backend fetch error', String(error));
-    return json({
-      ok: false,
-      error: 'OPPORTUNITY_BACKEND_UNAVAILABLE',
-      diagnostic: { reason: 'BACKEND_FETCH_FAILED' },
     }, 503, cors);
   }
 
-  const upstreamStatus = upstream.status;
-  const upstreamContentType = upstream.headers.get('content-type') || '';
-  const upstreamText = await upstream.text();
-
-  let payload;
   try {
-    payload = JSON.parse(upstreamText);
-  } catch {
-    const kind = responseKind(upstreamStatus, upstreamContentType);
-    console.log('Opportunity backend non-JSON response', {
-      status: upstreamStatus,
-      contentType: upstreamContentType,
-      kind,
-    });
+    const result = await runD1OpportunityEngine(env.OPPORTUNITY_DB, body);
+    const status = result.ok ? 200 : (result.status === 'INVALID_INPUT' ? 400 : 503);
+    return json(result, status, cors);
+  } catch (error) {
+    console.log('Opportunity D1 execution error', String(error));
     return json({
       ok: false,
-      error: 'OPPORTUNITY_BACKEND_INVALID_RESPONSE',
-      diagnostic: {
-        upstreamStatus,
-        responseKind: kind,
+      status: 'SERVICE_UNAVAILABLE',
+      contractVersion: API_VERSION,
+      error: 'OPPORTUNITY_DB_QUERY_FAILED',
+      safety: {
+        persistentWrite: false,
+        deliveryAttempted: false,
+        applicationAutomation: false,
+        privateDataExposed: false,
+        credentialsExposed: false,
+        worldwideExpandedImplicitly: false,
       },
-    }, 502, cors);
+    }, 503, cors);
   }
-
-  const safe = safePublicPayload(payload);
-  if (!upstream.ok || safe.status !== 'SUCCESS') {
-    return json({
-      ok: false,
-      error: payload?.error || 'OPPORTUNITY_REQUEST_REJECTED',
-      status: safe.status,
-      counts: safe.counts,
-      reviewRequired: safe.reviewRequired,
-      safety: safe.safety,
-    }, upstream.ok ? 422 : 502, cors);
-  }
-
-  return json(safe, 200, cors);
 }
 
 export default {
