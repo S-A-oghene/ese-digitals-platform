@@ -1,19 +1,20 @@
 /*
  * ESE DIGITALS — PUBLIC WEBSITE + OPPORTUNITY API EDGE
  *
- * The public Opportunity Engine is Worker-native.
- * D1 is the canonical public-safe opportunity store.
- * Apps Script remains outside the public Opportunity Engine request path.
+ * Public Engine requests stay on the protected Worker edge. When the approved
+ * CANONICAL_API_URL is configured, the Worker acts as the secure public bridge
+ * to the established multi-source canonical intelligence service. Until that
+ * dependency is configured, the existing public-safe D1 projection remains the
+ * operational fallback.
  */
 
 import { runD1OpportunityEngine } from './src/opportunity/d1Engine.js';
+import { runCanonicalOpportunityBridge } from './src/opportunity/canonicalBridge.js';
 
 const API_PATH = '/api/opportunities';
 const MAX_BODY_BYTES = 20000;
 const API_VERSION = '1.2-D1';
 
-// Plain object keeps the Worker source maximally compatible with managed
-// Wrangler/esbuild build environments while retaining the security controls.
 const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
@@ -37,9 +38,6 @@ function json(body, status = 200, extraHeaders = {}) {
 
 function originAllowed(request, env) {
   const origin = request.headers.get('Origin') || '';
-
-  // Non-browser clients such as curl do not send Origin. The request has already
-  // reached this exact Worker URL, so absence of Origin is not a cross-origin claim.
   if (!origin) return true;
 
   const requestOrigin = new URL(request.url).origin;
@@ -59,9 +57,26 @@ function corsHeaders(request) {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Vary': 'Origin',
   };
-
   if (origin) headers['Access-Control-Allow-Origin'] = origin;
   return headers;
+}
+
+function safeServiceUnavailable() {
+  return {
+    ok: false,
+    status: 'SERVICE_UNAVAILABLE',
+    contractVersion: API_VERSION,
+    error: 'SERVICE_UNAVAILABLE',
+    message: 'The Opportunity Engine is temporarily unavailable.',
+    safety: {
+      persistentWrite: false,
+      deliveryAttempted: false,
+      applicationAutomation: false,
+      privateDataExposed: false,
+      credentialsExposed: false,
+      worldwideExpandedImplicitly: false,
+    },
+  };
 }
 
 async function handleOpportunity(request, env) {
@@ -88,7 +103,7 @@ async function handleOpportunity(request, env) {
   }
 
   if (!env.OPPORTUNITY_LIMITER || typeof env.OPPORTUNITY_LIMITER.limit !== 'function') {
-    return json({ ok: false, error: 'SERVICE_UNAVAILABLE' }, 503, cors);
+    return json(safeServiceUnavailable(), 503, cors);
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -100,7 +115,7 @@ async function handleOpportunity(request, env) {
     }
   } catch (error) {
     console.log('Opportunity rate-limit error', String(error));
-    return json({ ok: false, error: 'SERVICE_UNAVAILABLE' }, 503, cors);
+    return json(safeServiceUnavailable(), 503, cors);
   }
 
   const bodyText = await request.text();
@@ -119,22 +134,20 @@ async function handleOpportunity(request, env) {
     return json({ ok: false, error: 'JSON_OBJECT_REQUIRED' }, 400, cors);
   }
 
+  // G9.5 controlled bridge: configured only after an actual approved canonical
+  // public API / secure proxy exists. No browser credentials are used.
+  if (String(env.CANONICAL_API_URL || '').trim()) {
+    try {
+      const bridged = await runCanonicalOpportunityBridge(env, body);
+      if (bridged) return json(bridged, 200, cors);
+    } catch (error) {
+      console.log('Canonical opportunity bridge error', String(error));
+      return json(safeServiceUnavailable(), 503, cors);
+    }
+  }
+
   if (!env.OPPORTUNITY_DB || typeof env.OPPORTUNITY_DB.prepare !== 'function') {
-    return json({
-      ok: false,
-      status: 'SERVICE_UNAVAILABLE',
-      contractVersion: API_VERSION,
-      error: 'SERVICE_UNAVAILABLE',
-      message: 'The Opportunity Engine is temporarily unavailable.',
-      safety: {
-        persistentWrite: false,
-        deliveryAttempted: false,
-        applicationAutomation: false,
-        privateDataExposed: false,
-        credentialsExposed: false,
-        worldwideExpandedImplicitly: false,
-      },
-    }, 503, cors);
+    return json(safeServiceUnavailable(), 503, cors);
   }
 
   try {
@@ -143,30 +156,14 @@ async function handleOpportunity(request, env) {
     return json(result, status, cors);
   } catch (error) {
     console.log('Opportunity D1 execution error', String(error));
-    return json({
-      ok: false,
-      status: 'SERVICE_UNAVAILABLE',
-      contractVersion: API_VERSION,
-      error: 'SERVICE_UNAVAILABLE',
-      safety: {
-        persistentWrite: false,
-        deliveryAttempted: false,
-        applicationAutomation: false,
-        privateDataExposed: false,
-        credentialsExposed: false,
-        worldwideExpandedImplicitly: false,
-      },
-    }, 503, cors);
+    return json(safeServiceUnavailable(), 503, cors);
   }
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
-    if (url.pathname === API_PATH) {
-      return handleOpportunity(request, env);
-    }
+    if (url.pathname === API_PATH) return handleOpportunity(request, env);
 
     const response = await env.ASSETS.fetch(request);
     const headers = new Headers(response.headers);
