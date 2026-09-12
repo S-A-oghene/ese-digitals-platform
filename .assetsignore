@@ -3,3 +3,7 @@ wrangler.jsonc
 *.md
 public-api-opportunity-edge/
 docs/
+.git/
+.git/*
+.wrangler/
+.wrangler/*
