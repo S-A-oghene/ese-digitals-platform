@@ -63,6 +63,15 @@ function safePublicPayload(payload) {
   };
 }
 
+function responseKind(status, contentType) {
+  const normalized = String(contentType || '').toLowerCase();
+  if (status >= 300 && status < 400) return 'REDIRECT';
+  if (normalized.includes('text/html')) return 'HTML';
+  if (normalized.includes('application/json')) return 'JSON_PARSE_FAILED';
+  if (!normalized) return 'NO_CONTENT_TYPE';
+  return 'NON_JSON_CONTENT_TYPE';
+}
+
 async function handleOpportunity(request, env) {
   const cors = corsHeaders(request);
 
@@ -93,9 +102,14 @@ async function handleOpportunity(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const userAgent = (request.headers.get('User-Agent') || 'unknown').slice(0, 160);
   const rateKey = `opportunity:${ip}:${userAgent}`;
-  const rate = await env.OPPORTUNITY_LIMITER.limit({ key: rateKey });
-  if (!rate?.success) {
-    return json({ ok: false, error: 'RATE_LIMITED' }, 429, cors);
+  try {
+    const rate = await env.OPPORTUNITY_LIMITER.limit({ key: rateKey });
+    if (!rate?.success) {
+      return json({ ok: false, error: 'RATE_LIMITED' }, 429, cors);
+    }
+  } catch (error) {
+    console.log('Opportunity rate-limit error', String(error));
+    return json({ ok: false, error: 'SERVICE_PROTECTION_UNAVAILABLE' }, 503, cors);
   }
 
   const bodyText = await request.text();
@@ -126,17 +140,36 @@ async function handleOpportunity(request, env) {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
+      redirect: 'follow',
       body: JSON.stringify(body),
     });
-  } catch {
+  } catch (error) {
+    console.log('Opportunity backend fetch error', String(error));
     return json({ ok: false, error: 'OPPORTUNITY_BACKEND_UNAVAILABLE' }, 503, cors);
   }
 
+  const upstreamStatus = upstream.status;
+  const upstreamContentType = upstream.headers.get('content-type') || '';
+  const upstreamText = await upstream.text();
+
   let payload;
   try {
-    payload = await upstream.json();
+    payload = JSON.parse(upstreamText);
   } catch {
-    return json({ ok: false, error: 'OPPORTUNITY_BACKEND_INVALID_RESPONSE' }, 502, cors);
+    const kind = responseKind(upstreamStatus, upstreamContentType);
+    console.log('Opportunity backend non-JSON response', {
+      status: upstreamStatus,
+      contentType: upstreamContentType,
+      kind,
+    });
+    return json({
+      ok: false,
+      error: 'OPPORTUNITY_BACKEND_INVALID_RESPONSE',
+      diagnostic: {
+        upstreamStatus,
+        responseKind: kind,
+      },
+    }, 502, cors);
   }
 
   const safe = safePublicPayload(payload);
