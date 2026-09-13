@@ -45,13 +45,9 @@ function sanitizePayload(payload) {
 
   const results = payload.results.map(sanitizeResult).filter(Boolean);
   const counts = safeObject(payload.counts) ? {
-    discovered: Number(payload.counts.discovered) || 0,
-    normalized: Number(payload.counts.normalized) || 0,
     eligible: Number(payload.counts.eligible) || 0,
     returned: Number(payload.counts.returned) || results.length,
   } : {
-    discovered: results.length,
-    normalized: results.length,
     eligible: results.length,
     returned: results.length,
   };
@@ -61,8 +57,9 @@ function sanitizePayload(payload) {
     planner: 'G9.5-CANONICAL-BRIDGE',
     role: String(rawPlan.role || ''),
     country: String(rawPlan.country || ''),
+    regions: Array.isArray(rawPlan.regions) ? rawPlan.regions.map(String).slice(0, 20) : [],
     skills: Array.isArray(rawPlan.skills) ? rawPlan.skills.map(String).slice(0, 20) : [],
-    remote: String(rawPlan.remote || ''),
+    remote: rawPlan.remote == null ? null : String(rawPlan.remote),
     worldwide: rawPlan.worldwide === true,
     allowWorldwide: rawPlan.allowWorldwide === true,
   };
@@ -70,7 +67,7 @@ function sanitizePayload(payload) {
   return {
     ok: true,
     status: 'SUCCESS',
-    contractVersion: String(payload.contractVersion || '1.2-D1'),
+    contractVersion: String(payload.contractVersion || '1.4-CANONICAL-PUBLIC-SEMANTICS'),
     queryPlan,
     counts,
     results,
