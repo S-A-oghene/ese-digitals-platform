@@ -211,8 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
         : 'The engine completed the search but returned no eligible ranked opportunities.';
 
       resultSummary.textContent = payload.counts
-        ? `Discovered ${payload.counts.discovered ?? 0}; normalized ${payload.counts.normalized ?? 0}; eligible ${payload.counts.eligible ?? 0}; returned ${payload.counts.returned ?? 0}.`
-        : '';
+        ? `Eligible ${payload.counts.eligible ?? 0}; returned ${payload.counts.returned ?? count}.`
+        : `Returned ${count} eligible ranked opportunit${count === 1 ? 'y' : 'ies'}.`;
       reviewSummary.textContent = reviewCount
         ? `${reviewCount} candidate${reviewCount === 1 ? '' : 's'} require downstream review and were not presented as eligible ranked results.`
         : 'No additional review-only candidates were reported.';
